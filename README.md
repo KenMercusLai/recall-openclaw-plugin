@@ -121,6 +121,7 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "includePreference": true,
   "includeToolMemory": false,
   "toolMemoryLimitNumber": 6,
+  "relativity": 0.45,
   "tags": ["openclaw"],
   "asyncMode": true
 }
