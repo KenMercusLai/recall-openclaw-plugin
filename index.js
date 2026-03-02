@@ -87,7 +87,7 @@ function buildSearchPayload(cfg, prompt, ctx) {
   payload.preference_limit_number = cfg.preferenceLimitNumber;
   payload.include_tool_memory = cfg.includeToolMemory;
   payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
-  payload.relativity = cfg.relativity ?? 0.7;
+  payload.relativity = cfg.relativity;
 
   return payload;
 }
