@@ -10,6 +10,13 @@ import {
 
 let lastCaptureTime = 0;
 
+const HEARTBEAT_MARKERS = ["HEARTBEAT_OK", "Read HEARTBEAT.md if it exists"];
+
+function isHeartbeat(prompt) {
+  if (!prompt) return false;
+  return HEARTBEAT_MARKERS.every((m) => prompt.includes(m));
+}
+
 function truncate(text, maxLen) {
   if (!text) return "";
   if (!maxLen) return text;
@@ -93,6 +100,7 @@ export default {
       if (!cfg.recallEnabled) return;
       if (!event?.prompt || event.prompt.length < 3) return;
       if (!cfg.openrouterApiKey) return;
+      if (isHeartbeat(event.prompt)) return;
 
       try {
         const results = await searchMemory(cfg, {
@@ -113,6 +121,10 @@ export default {
     api.on("agent_end", async (event, ctx) => {
       if (!cfg.addEnabled) return;
       if (!event?.success || !event?.messages?.length) return;
+
+      // Skip heartbeat messages — they are noise
+      const lastUserMsg = [...event.messages].reverse().find((m) => m?.role === "user");
+      if (lastUserMsg && isHeartbeat(extractText(lastUserMsg.content))) return;
 
       const now = Date.now();
       if (cfg.throttleMs && now - lastCaptureTime < cfg.throttleMs) return;
