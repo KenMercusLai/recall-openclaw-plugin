@@ -1,5 +1,5 @@
 {
-  "id": "memos-local-plugin",
+  "id": "recall-openclaw-plugin",
   "name": "Local Memory Plugin",
   "description": "Local PostgreSQL/pgvector memory recall + save via lifecycle hooks",
   "version": "0.1.0",

@@ -1,151 +1,88 @@
-# MemOS Cloud OpenClaw Plugin（Lifecycle 插件）
+# Recall — 本地优先的 OpenClaw 记忆插件
 
-官方维护：MemTensor。
+一个 OpenClaw 生命周期插件，用你自己的 PostgreSQL 数据库为 agent 提供**持久记忆**。不依赖云服务，不上传数据——你的对话和知识留在你自己的机器上。
 
-这是一个最小可用的 OpenClaw lifecycle 插件，功能是：
-- **召回记忆**：在每轮对话前从 MemOS Cloud 检索记忆并注入上下文
-- **添加记忆**：在每轮对话结束后把消息写回 MemOS Cloud
+## 工作原理
 
-## 功能
-- **Recall**：`before_agent_start` → `/search/memory`
-- **Add**：`agent_end` → `/add/message`
-- 使用 **Token** 认证（`Authorization: Token <MEMOS_API_KEY>`）
+```
+用户发送消息
+       │
+       ▼
+┌─ before_agent_start ─────────────────────┐
+│  用户 prompt → embedding → 向量搜索       │
+│  PostgreSQL (chat_messages + vault_notes)  │
+│  → 相关记忆注入到上下文                    │
+└───────────────────────────────────────────┘
+       │
+       ▼
+   Agent 运行（带记忆上下文）
+       │
+       ▼
+┌─ agent_end ──────────────────────────────┐
+│  对话内容 → embedding → INSERT            │
+│  PostgreSQL (chat_messages)               │
+│  → 存储供未来召回                          │
+└───────────────────────────────────────────┘
+```
+
+**召回（Recall）**：每次 agent 运行前，通过 pgvector 余弦相似度搜索数据库中的相关对话和笔记，注入到 prompt 上下文。
+
+**存储（Store）**：每次 agent 运行后，将对话内容生成 embedding 并存入数据库。
 
 ## 安装
 
-### 方式 A — NPM（推荐）
 ```bash
-openclaw plugins install @memtensor/memos-cloud-openclaw-plugin@latest
-openclaw gateway restart
+openclaw plugins install recall-openclaw-plugin@latest
 ```
 
-> **Windows 用户注意**：
-> 如果遇到 `Error: spawn EINVAL` 报错，这是 OpenClaw Windows 安装器的已知问题。请使用下方的 **方式 B**（手动安装）。
+### 配置
 
-确认 `~/.openclaw/openclaw.json` 中已启用：
-```json
-{
-  "plugins": {
-    "entries": {
-      "memos-cloud-openclaw-plugin": { "enabled": true }
-    }
-  }
-}
-```
-
-### 方式 B — 手动安装（Windows 解决方案）
-1. 从 [NPM](https://www.npmjs.com/package/@memtensor/memos-cloud-openclaw-plugin) 下载最新的 `.tgz` 包。
-2. 解压到本地目录（例如 `C:\Users\YourName\.openclaw\extensions\memos-cloud-openclaw-plugin`）。
-3. 修改配置 `~/.openclaw/openclaw.json`（或 `%USERPROFILE%\.openclaw\openclaw.json`）：
+在 OpenClaw 配置文件中：
 
 ```json
 {
   "plugins": {
     "entries": {
-      "memos-cloud-openclaw-plugin": { "enabled": true }
-    },
-    "load": {
-      "paths": [
-        "C:\\Users\\YourName\\.openclaw\\extensions\\memos-cloud-openclaw-plugin\\package"
-      ]
+      "recall-openclaw-plugin": { "enabled": true }
     }
   }
 }
 ```
-*注意：解压后的文件夹通常包含一个 `package` 子文件夹，请指向包含 `package.json` 的那层目录。*
-
-修改配置后需要重启 gateway。
 
 ## 环境变量
-插件按顺序读取 env 文件（**openclaw → moltbot → clawdbot**），每个键优先使用最先匹配到的值。
-若三个文件都不存在（或该键未找到），才会回退到进程环境变量。
 
-**配置位置**
-- 文件（优先级顺序）：
-  - `~/.openclaw/.env`
-  - `~/.moltbot/.env`
-  - `~/.clawdbot/.env`
-- 每行格式：`KEY=value`
+- `PGHOST` — PostgreSQL 主机（默认 `server`）
+- `PGPORT` — PostgreSQL 端口（默认 `5432`）
+- `PGUSER` — PostgreSQL 用户（默认 `chloe`）
+- `PGPASSWORD` — PostgreSQL 密码
+- `PGDATABASE` — PostgreSQL 数据库（默认 `chloe`）
+- `OPENROUTER_API_KEY` — 必需，用于生成 embedding
+- `EMBEDDING_MODEL` — Embedding 模型（默认 `openai/text-embedding-3-small`）
 
-**快速配置（Shell）**
-```bash
-echo 'export MEMOS_API_KEY="mpg-..."' >> ~/.zshrc
-source ~/.zshrc
-# 或者
+### 插件配置
 
-echo 'export MEMOS_API_KEY="mpg-..."' >> ~/.bashrc
-source ~/.bashrc
-```
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `pgHost` | string | env `PGHOST` 或 `server` | PostgreSQL 主机 |
+| `pgPort` | integer | env `PGPORT` 或 `5432` | PostgreSQL 端口 |
+| `pgUser` | string | env `PGUSER` 或 `chloe` | PostgreSQL 用户 |
+| `pgPassword` | string | env `PGPASSWORD` | PostgreSQL 密码 |
+| `pgDatabase` | string | env `PGDATABASE` 或 `chloe` | PostgreSQL 数据库 |
+| `openrouterApiKey` | string | env `OPENROUTER_API_KEY` | Embedding API Key |
+| `embeddingModel` | string | `openai/text-embedding-3-small` | Embedding 模型 |
+| `recallEnabled` | boolean | `true` | 启用记忆召回 |
+| `addEnabled` | boolean | `true` | 启用对话存储 |
+| `captureStrategy` | string | `last_turn` | `last_turn` 或 `full_session` |
+| `searchLimit` | integer | `10` | 每次搜索最大结果数 |
+| `timeoutMs` | integer | `5000` | 数据库连接超时 |
+| `throttleMs` | integer | `0` | 存储最小间隔 |
 
-**快速配置（Windows PowerShell）**
-```powershell
-[System.Environment]::SetEnvironmentVariable("MEMOS_API_KEY", "mpg-...", "User")
-```
+## 依赖
 
-若未读取到 `MEMOS_API_KEY`，插件会提示配置方式并附 API Key 获取地址。
+- PostgreSQL + [pgvector](https://github.com/pgvector/pgvector) 扩展
+- OpenRouter API Key（用于 embedding）
+- OpenClaw
 
-**最小配置**
-```env
-MEMOS_API_KEY=YOUR_TOKEN
-```
+## 许可证
 
-**可选配置**
-- `MEMOS_BASE_URL`（默认 `https://memos.memtensor.cn/api/openmem/v1`）
-- `MEMOS_API_KEY`（必填，Token 认证）—— 获取地址：https://memos-dashboard.openmem.net/cn/apikeys/
-- `MEMOS_USER_ID`（可选，默认 `openclaw-user`）
-- `MEMOS_CONVERSATION_ID`（可选覆盖）
-- `MEMOS_RECALL_GLOBAL`（默认 `true`；为 true 时检索不传 conversation_id）
-- `MEMOS_CONVERSATION_PREFIX` / `MEMOS_CONVERSATION_SUFFIX`（可选）
-- `MEMOS_CONVERSATION_SUFFIX_MODE`（`none` | `counter`，默认 `none`）
-- `MEMOS_CONVERSATION_RESET_ON_NEW`（默认 `true`，需 hooks.internal.enabled）
-
-## 可选插件配置
-在 `plugins.entries.memos-cloud-openclaw-plugin.config` 中设置：
-```json
-{
-  "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
-  "apiKey": "YOUR_API_KEY",
-  "userId": "memos_user_123",
-  "conversationId": "openclaw-main",
-  "queryPrefix": "important user context preferences decisions ",
-  "recallEnabled": true,
-  "recallGlobal": true,
-  "addEnabled": true,
-  "captureStrategy": "last_turn",
-  "includeAssistant": true,
-  "conversationIdPrefix": "",
-  "conversationIdSuffix": "",
-  "conversationSuffixMode": "none",
-  "resetOnNew": true,
-  "memoryLimitNumber": 6,
-  "preferenceLimitNumber": 6,
-  "knowledgebaseIds": [],
-  "includePreference": true,
-  "includeToolMemory": false,
-  "toolMemoryLimitNumber": 6,
-  "tags": ["openclaw"],
-  "asyncMode": true
-}
-```
-
-## 工作原理
-### 1) 召回（before_agent_start）
-- 组装 `/search/memory` 请求
-  - `user_id`、`query`（= prompt + 可选前缀）
-  - 默认**全局召回**：`recallGlobal=true` 时不传 `conversation_id`
-  - 可选 `filter` / `knowledgebase_ids`
-- 使用 `/search/memory` 结果按 MemOS 提示词模板（Role/System/Memory/Skill/Protocols）拼装，并通过 `prependContext` 注入
-
-### 2) 添加（agent_end）
-- 默认只写**最后一轮**（user + assistant）
-- 构造 `/add/message` 请求：
-  - `user_id`、`conversation_id`
-  - `messages` 列表
-  - 可选 `tags / info / agent_id / app_id`
-
-## 说明
-- 未显式指定 `conversation_id` 时，默认使用 OpenClaw `sessionKey`。**TODO**：后续考虑直接绑定 OpenClaw `sessionId`。
-- 可配置前后缀；`conversationSuffixMode=counter` 时会在 `/new` 递增（需 `hooks.internal.enabled`）。
-
-## 致谢
-- 感谢 @anatolykoptev（Contributor）— 领英：https://www.linkedin.com/in/koptev?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app
+Apache-2.0

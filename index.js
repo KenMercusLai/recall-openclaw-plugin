@@ -58,7 +58,7 @@ function pickFullSessionMessages(messages, cfg) {
 }
 
 export default {
-  id: "memos-local-plugin",
+  id: "recall-openclaw-plugin",
   name: "Local Memory Plugin",
   description: "Local PostgreSQL/pgvector memory recall + save via lifecycle hooks",
   kind: "lifecycle",
@@ -69,11 +69,11 @@ export default {
 
     // Test DB connection on register
     testConnection(cfg)
-      .then(() => log.info?.("[memos-local] PostgreSQL connection OK"))
-      .catch((err) => log.warn?.(`[memos-local] PostgreSQL connection failed: ${err.message}`));
+      .then(() => log.info?.("[recall] PostgreSQL connection OK"))
+      .catch((err) => log.warn?.(`[recall] PostgreSQL connection failed: ${err.message}`));
 
     if (!cfg.openrouterApiKey) {
-      log.warn?.("[memos-local] Missing OPENROUTER_API_KEY; embeddings will not work.");
+      log.warn?.("[recall] Missing OPENROUTER_API_KEY; embeddings will not work.");
     }
 
     // Recall: search memories before agent starts
@@ -93,7 +93,7 @@ export default {
 
         return { prependContext: promptBlock };
       } catch (err) {
-        log.warn?.(`[memos-local] recall failed: ${err.message}`);
+        log.warn?.(`[recall] recall failed: ${err.message}`);
       }
     });
 
@@ -125,7 +125,7 @@ export default {
           });
         }
       } catch (err) {
-        log.warn?.(`[memos-local] save failed: ${err.message}`);
+        log.warn?.(`[recall] save failed: ${err.message}`);
       }
     });
   },

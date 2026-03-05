@@ -1,5 +1,5 @@
 {
-  "name": "@kenlai/memos-local-plugin",
+  "name": "recall-openclaw-plugin",
   "version": "0.1.0",
   "description": "OpenClaw lifecycle plugin for local PostgreSQL/pgvector memory recall + save",
   "scripts": {

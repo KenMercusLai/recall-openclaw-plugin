@@ -1,145 +1,102 @@
-# MemOS Cloud OpenClaw Plugin (Lifecycle)
+# Recall — Local-First Memory Plugin for OpenClaw
 
-Official plugin maintained by MemTensor.
+A lifecycle plugin that gives your OpenClaw agent **persistent memory** backed by your own PostgreSQL database. No cloud services, no third-party data storage — your conversations and knowledge stay on your machine.
 
-A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud before each run and **adds** new messages to MemOS Cloud after each run.
+## What It Does
 
-## Features
-- **Recall**: `before_agent_start` → `/search/memory`
-- **Add**: `agent_end` → `/add/message`
-- Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
+```
+User sends message
+       │
+       ▼
+┌─ before_agent_start ─────────────────────┐
+│  User prompt → embedding → vector search  │
+│  PostgreSQL (chat_messages + vault_notes)  │
+│  → relevant memories injected into context │
+└───────────────────────────────────────────┘
+       │
+       ▼
+   Agent runs (with memory context)
+       │
+       ▼
+┌─ agent_end ──────────────────────────────┐
+│  Conversation → embedding → INSERT        │
+│  PostgreSQL (chat_messages)               │
+│  → stored for future recall               │
+└───────────────────────────────────────────┘
+```
 
-## Install
+**Recall**: Before each agent run, searches your database for relevant past conversations and notes using pgvector cosine similarity, then injects them into the prompt context.
 
-### Option A — NPM (Recommended)
+**Store**: After each agent run, saves the conversation with embeddings for future retrieval.
+
+## Installation
+
 ```bash
-openclaw plugins install @memtensor/memos-cloud-openclaw-plugin@latest
-openclaw gateway restart
+openclaw plugins install recall-openclaw-plugin@latest
 ```
 
-> **Note for Windows Users**:
-> If you encounter `Error: spawn EINVAL`, this is a known issue with OpenClaw's plugin installer on Windows. Please use **Option B** (Manual Install) below.
+### Configuration
 
-Make sure it’s enabled in `~/.openclaw/openclaw.json`:
-```json
-{
-  "plugins": {
-    "entries": {
-      "memos-cloud-openclaw-plugin": { "enabled": true }
-    }
-  }
-}
-```
-
-### Option B — Manual Install (Workaround for Windows)
-1. Download the latest `.tgz` from [NPM](https://www.npmjs.com/package/@memtensor/memos-cloud-openclaw-plugin).
-2. Extract it to a local folder (e.g., `C:\Users\YourName\.openclaw\extensions\memos-cloud-openclaw-plugin`).
-3. Configure `~/.openclaw/openclaw.json` (or `%USERPROFILE%\.openclaw\openclaw.json`):
+In your OpenClaw config (`~/.openclaw/config.yaml` or equivalent):
 
 ```json
 {
   "plugins": {
     "entries": {
-      "memos-cloud-openclaw-plugin": { "enabled": true }
-    },
-    "load": {
-      "paths": [
-        "C:\\Users\\YourName\\.openclaw\\extensions\\memos-cloud-openclaw-plugin\\package"
-      ]
+      "recall-openclaw-plugin": { "enabled": true }
     }
   }
 }
 ```
-*Note: The extracted folder usually contains a `package` subfolder. Point to the folder containing `package.json`.*
-
-Restart the gateway after config changes.
 
 ## Environment Variables
-The plugin tries env files in order (**openclaw → moltbot → clawdbot**). For each key, the first file with a value wins.
-If none of these files exist (or the key is missing), it falls back to the process environment.
 
-**Where to configure**
-- Files (priority order):
-  - `~/.openclaw/.env`
-  - `~/.moltbot/.env`
-  - `~/.clawdbot/.env`
-- Each line is `KEY=value`
+- `PGHOST` — PostgreSQL host (default: `server`)
+- `PGPORT` — PostgreSQL port (default: `5432`)
+- `PGUSER` — PostgreSQL user (default: `chloe`)
+- `PGPASSWORD` — PostgreSQL password
+- `PGDATABASE` — PostgreSQL database (default: `chloe`)
+- `OPENROUTER_API_KEY` — Required for generating embeddings
+- `EMBEDDING_MODEL` — Embedding model (default: `openai/text-embedding-3-small`)
 
-**Quick setup (shell)**
-```bash
-echo 'export MEMOS_API_KEY="mpg-..."' >> ~/.zshrc
-source ~/.zshrc
-# or
+### Plugin Config
 
-echo 'export MEMOS_API_KEY="mpg-..."' >> ~/.bashrc
-source ~/.bashrc
-```
+In `plugins.entries.recall-openclaw-plugin.config`:
 
-**Quick setup (Windows PowerShell)**
-```powershell
-[System.Environment]::SetEnvironmentVariable("MEMOS_API_KEY", "mpg-...", "User")
-```
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `pgHost` | string | env `PGHOST` or `server` | PostgreSQL host |
+| `pgPort` | integer | env `PGPORT` or `5432` | PostgreSQL port |
+| `pgUser` | string | env `PGUSER` or `chloe` | PostgreSQL user |
+| `pgPassword` | string | env `PGPASSWORD` | PostgreSQL password |
+| `pgDatabase` | string | env `PGDATABASE` or `chloe` | PostgreSQL database |
+| `openrouterApiKey` | string | env `OPENROUTER_API_KEY` | API key for embeddings |
+| `embeddingModel` | string | `openai/text-embedding-3-small` | Embedding model |
+| `recallEnabled` | boolean | `true` | Enable memory recall |
+| `addEnabled` | boolean | `true` | Enable conversation saving |
+| `captureStrategy` | string | `last_turn` | `last_turn` or `full_session` |
+| `searchLimit` | integer | `10` | Max results per search |
+| `timeoutMs` | integer | `5000` | DB connection timeout |
+| `throttleMs` | integer | `0` | Min interval between saves |
 
-If `MEMOS_API_KEY` is missing, the plugin will warn with setup instructions and the API key URL.
+## How It Works
 
-**Minimal config**
-```env
-MEMOS_API_KEY=YOUR_TOKEN
-```
+### Recall (before_agent_start)
+1. Takes the user's prompt and generates an embedding via OpenRouter
+2. Searches `chat_messages` and `vault_notes` tables using pgvector cosine similarity
+3. Formats the top results and injects them into the agent context via `prependContext`
 
-**Optional config**
-- `MEMOS_BASE_URL` (default: `https://memos.memtensor.cn/api/openmem/v1`)
-- `MEMOS_API_KEY` (required; Token auth) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
-- `MEMOS_USER_ID` (optional; default: `openclaw-user`)
-- `MEMOS_CONVERSATION_ID` (optional override)
-- `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass conversation_id)
-- `MEMOS_CONVERSATION_PREFIX` / `MEMOS_CONVERSATION_SUFFIX` (optional)
-- `MEMOS_CONVERSATION_SUFFIX_MODE` (`none` | `counter`, default: `none`)
-- `MEMOS_CONVERSATION_RESET_ON_NEW` (default: `true`, requires hooks.internal.enabled)
+### Store (agent_end)
+1. After a successful agent run, extracts messages from the conversation
+2. Inserts each message into `chat_messages` with timestamp and session info
+3. Generates embeddings asynchronously and updates the records
 
-## Optional Plugin Config
-In `plugins.entries.memos-cloud-openclaw-plugin.config`:
-```json
-{
-  "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
-  "apiKey": "YOUR_API_KEY",
-  "userId": "memos_user_123",
-  "conversationId": "openclaw-main",
-  "queryPrefix": "important user context preferences decisions ",
-  "recallEnabled": true,
-  "recallGlobal": true,
-  "addEnabled": true,
-  "captureStrategy": "last_turn",
-  "includeAssistant": true,
-  "conversationIdPrefix": "",
-  "conversationIdSuffix": "",
-  "conversationSuffixMode": "none",
-  "resetOnNew": true,
-  "knowledgebaseIds": [],
-  "memoryLimitNumber": 6,
-  "preferenceLimitNumber": 6,
-  "includePreference": true,
-  "includeToolMemory": false,
-  "toolMemoryLimitNumber": 6,
-  "relativity": 0.45,
-  "tags": ["openclaw"],
-  "asyncMode": true
-}
-```
+## Requirements
 
-## How it Works
-- **Recall** (`before_agent_start`)
-  - Builds a `/search/memory` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
-  - Default **global recall**: when `recallGlobal=true`, it does **not** pass `conversation_id`.
-  - Formats a MemOS prompt (Role/System/Memory/Skill/Protocols) from `/search/memory` results, then injects via `prependContext`.
+- PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) extension
+- OpenRouter API key (for embeddings)
+- OpenClaw
 
-- **Add** (`agent_end`)
-  - Builds a `/add/message` request with the **last turn** by default (user + assistant).
-  - Sends `messages` with `user_id`, `conversation_id`, and optional `tags/info/agent_id/app_id`.
+## License
 
-## Notes
-- `conversation_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
-- Optional **prefix/suffix** via env or config; `conversationSuffixMode=counter` increments on `/new` (requires `hooks.internal.enabled`).
-
-## Acknowledgements
-- Thanks to @anatolykoptev (Contributor) — LinkedIn: https://www.linkedin.com/in/koptev?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app
+Apache-2.0
