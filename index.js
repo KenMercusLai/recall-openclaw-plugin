@@ -18,7 +18,7 @@ function truncate(text, maxLen) {
 
 function extractMetadata(msg) {
   if (!msg || typeof msg !== "object") return {};
-  const skip = new Set(["role", "content"]);
+  const skip = new Set(["role", "content", "id"]);
   const meta = {};
   for (const [k, v] of Object.entries(msg)) {
     if (!skip.has(k) && v !== undefined && v !== null) {
@@ -44,10 +44,10 @@ function pickLastTurnMessages(messages, cfg) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
+      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
     } else if (msg.role === "assistant" && cfg.includeAssistant) {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
+      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
     }
   }
 
@@ -60,10 +60,10 @@ function pickFullSessionMessages(messages, cfg) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
+      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
     } else if (msg.role === "assistant" && cfg.includeAssistant) {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
+      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
     }
   }
   return results;
@@ -135,6 +135,7 @@ export default {
             role: msg.role,
             content: msg.content,
             metadata: msg.metadata || {},
+            messageId: msg.messageId || null,
           });
         }
       } catch (err) {
