@@ -1,63 +1,44 @@
 {
-  "id": "memos-cloud-openclaw-plugin",
-  "name": "MemOS Cloud OpenClaw Plugin",
-  "description": "MemOS Cloud recall + add memory via lifecycle hooks",
-  "version": "0.1.4-beta.0",
+  "id": "memos-local-plugin",
+  "name": "Local Memory Plugin",
+  "description": "Local PostgreSQL/pgvector memory recall + save via lifecycle hooks",
+  "version": "0.1.0",
   "kind": "lifecycle",
   "main": "./index.js",
   "configSchema": {
     "type": "object",
     "properties": {
-      "baseUrl": {
+      "pgHost": {
         "type": "string",
-        "description": "MemOS Cloud base URL"
+        "description": "PostgreSQL host (default: env PGHOST or 'server')"
       },
-      "apiKey": {
-        "type": "string",
-        "description": "MemOS API Key (Token auth; supports ~/.openclaw/.env, ~/.moltbot/.env, ~/.clawdbot/.env; falls back to process env)"
-      },
-      "userId": {
-        "type": "string",
-        "description": "MemOS user_id (default: openclaw-user)",
-        "default": "openclaw-user"
-      },
-      "conversationId": {
-        "type": "string",
-        "description": "Override conversation_id"
-      },
-      "conversationIdPrefix": {
-        "type": "string",
-        "description": "conversation_id prefix"
-      },
-      "conversationIdSuffix": {
-        "type": "string",
-        "description": "conversation_id suffix"
-      },
-      "conversationSuffixMode": {
-        "type": "string",
-        "enum": [
-          "none",
-          "counter"
-        ],
-        "default": "none"
-      },
-      "resetOnNew": {
-        "type": "boolean",
-        "default": true
-      },
-      "queryPrefix": {
-        "type": "string",
-        "description": "Prefix added to search queries"
-      },
-      "maxQueryChars": {
+      "pgPort": {
         "type": "integer",
-        "description": "Max chars for search query"
+        "description": "PostgreSQL port (default: env PGPORT or 5432)",
+        "default": 5432
+      },
+      "pgUser": {
+        "type": "string",
+        "description": "PostgreSQL user (default: env PGUSER or 'chloe')"
+      },
+      "pgPassword": {
+        "type": "string",
+        "description": "PostgreSQL password (default: env PGPASSWORD)"
+      },
+      "pgDatabase": {
+        "type": "string",
+        "description": "PostgreSQL database (default: env PGDATABASE or 'chloe')"
+      },
+      "openrouterApiKey": {
+        "type": "string",
+        "description": "OpenRouter API key for embeddings (default: env OPENROUTER_API_KEY)"
+      },
+      "embeddingModel": {
+        "type": "string",
+        "description": "Embedding model name",
+        "default": "openai/text-embedding-3-small"
       },
       "recallEnabled": {
-        "type": "boolean",
-        "default": true
-      },
-      "recallGlobal": {
         "type": "boolean",
         "default": true
       },
@@ -67,88 +48,26 @@
       },
       "captureStrategy": {
         "type": "string",
-        "enum": [
-          "last_turn",
-          "full_session"
-        ],
+        "enum": ["last_turn", "full_session"],
         "default": "last_turn"
       },
       "maxMessageChars": {
         "type": "integer",
-        "description": "Max chars per message when adding",
+        "description": "Max chars per message when saving",
         "default": 20000
       },
       "includeAssistant": {
         "type": "boolean",
         "default": true
       },
-      "memoryLimitNumber": {
+      "searchLimit": {
         "type": "integer",
-        "default": 6
-      },
-      "preferenceLimitNumber": {
-        "type": "integer",
-        "default": 6
-      },
-      "includePreference": {
-        "type": "boolean",
-        "default": true
-      },
-      "includeToolMemory": {
-        "type": "boolean",
-        "default": false
-      },
-      "toolMemoryLimitNumber": {
-        "type": "integer",
-        "default": 6
-      },
-      "filter": {
-        "type": "object",
-        "description": "MemOS search filter"
-      },
-      "knowledgebaseIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
-      "tags": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
-      "info": {
-        "type": "object",
-        "additionalProperties": true
-      },
-      "agentId": {
-        "type": "string"
-      },
-      "appId": {
-        "type": "string"
-      },
-      "allowPublic": {
-        "type": "boolean",
-        "default": false
-      },
-      "allowKnowledgebaseIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
-      "asyncMode": {
-        "type": "boolean",
-        "default": true
+        "description": "Max results per search (split between conversations and notes)",
+        "default": 10
       },
       "timeoutMs": {
         "type": "integer",
         "default": 5000
-      },
-      "retries": {
-        "type": "integer",
-        "default": 1
       },
       "throttleMs": {
         "type": "integer",

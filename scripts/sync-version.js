@@ -5,18 +5,13 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Read the updated package.json to get the new version
 const packageJsonPath = path.resolve(__dirname, '../package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const newVersion = packageJson.version;
 
 console.log(`Syncing version to ${newVersion}...`);
 
-const filesToUpdate = [
-  'openclaw.plugin.json',
-  'moltbot.plugin.json',
-  'clawdbot.plugin.json'
-];
+const filesToUpdate = ['openclaw.plugin.json'];
 
 filesToUpdate.forEach(fileName => {
   const filePath = path.resolve(__dirname, '..', fileName);
@@ -24,10 +19,8 @@ filesToUpdate.forEach(fileName => {
   if (fs.existsSync(filePath)) {
     try {
       const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      
       if (content.version !== newVersion) {
         content.version = newVersion;
-        // Write back with 2 spaces indentation and a newline at the end
         fs.writeFileSync(filePath, JSON.stringify(content, null, 2) + '\n', 'utf8');
         console.log(`Updated ${fileName} to version ${newVersion}`);
       } else {

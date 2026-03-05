@@ -1,44 +1,24 @@
 {
-  "name": "@memtensor/memos-cloud-openclaw-plugin",
-  "version": "0.1.4-beta.0",
-  "description": "OpenClaw lifecycle plugin for MemOS Cloud (add + recall memory)",
+  "name": "@kenlai/memos-local-plugin",
+  "version": "0.1.0",
+  "description": "OpenClaw lifecycle plugin for local PostgreSQL/pgvector memory recall + save",
   "scripts": {
-    "sync-version": "node scripts/sync-version.js",
-    "version": "npm run sync-version && git add openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json",
-    "publish-beta": "npm publish --tag beta",
-    "publish-beta-patch": "npm version prepatch --preid=beta && npm publish --tag beta",
-    "publish-latest": "npm version $(node -p \"require('./package.json').version.split('-')[0]\") && npm publish",
-    "publish-latest-patch": "npm version patch && npm publish"
+    "sync-version": "node scripts/sync-version.js"
   },
   "keywords": [
-    "memos",
-    "memos-cloud",
+    "memory",
     "openclaw",
     "plugin",
-    "memory"
+    "pgvector",
+    "postgresql"
   ],
-  "homepage": "https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin#readme",
-  "bugs": {
-    "url": "https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin.git"
-  },
   "type": "module",
-  "author": "MemTensor",
+  "author": "Ken Lai",
   "license": "MIT",
+  "dependencies": {
+    "pg": "^8.18.0"
+  },
   "openclaw": {
-    "extensions": [
-      "./index.js"
-    ]
-  },
-  "clawdbot": {
-    "extensions": [
-      "./index.js"
-    ]
-  },
-  "moltbot": {
     "extensions": [
       "./index.js"
     ]
