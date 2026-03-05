@@ -68,7 +68,7 @@
       "minSimilarity": {
         "type": "number",
         "description": "Minimum cosine similarity threshold (0-1). Results below this are discarded.",
-        "default": 0.6
+        "default": 0.5
       },
       "timeoutMs": {
         "type": "integer",
