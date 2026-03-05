@@ -77,9 +77,31 @@ openclaw plugins install recall-openclaw-plugin@latest
 | `timeoutMs` | integer | `5000` | 数据库连接超时 |
 | `throttleMs` | integer | `0` | 存储最小间隔 |
 
+## 数据库配置
+
+插件需要两张 PostgreSQL 表，并启用 [pgvecto.rs](https://github.com/tensorchord/pgvecto.rs) 向量扩展。
+
+1. 安装向量扩展：
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vectors;
+```
+
+2. 用提供的 SQL 文件创建表：
+
+```bash
+psql -h your-host -U your-user -d your-db -f sql/chat_messages.sql
+psql -h your-host -U your-user -d your-db -f sql/vault_notes.sql
+```
+
+- **`chat_messages`** — 存储对话历史。插件每次 agent 运行后自动写入。完整定义见 [`sql/chat_messages.sql`](sql/chat_messages.sql)。
+- **`vault_notes`** — 存储知识库（如 Obsidian vault 笔记）。需要你自己同步数据（通过脚本等）。完整定义见 [`sql/vault_notes.sql`](sql/vault_notes.sql)。
+
+两张表都使用 `vector(1536)` 列存储 embedding（匹配 `text-embedding-3-small` 输出维度），并建有 pgvector 余弦相似度索引。
+
 ## 依赖
 
-- PostgreSQL + [pgvector](https://github.com/pgvector/pgvector) 扩展
+- PostgreSQL + [pgvecto.rs](https://github.com/tensorchord/pgvecto.rs) 扩展（向量相似度搜索）
 - OpenRouter API Key（用于 embedding）
 - OpenClaw
 

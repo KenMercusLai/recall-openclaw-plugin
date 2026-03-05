@@ -91,9 +91,31 @@ In `plugins.entries.recall-openclaw-plugin.config`:
 2. Inserts each message into `chat_messages` with timestamp and session info
 3. Generates embeddings asynchronously and updates the records
 
+## Database Setup
+
+The plugin requires two tables in PostgreSQL with the [pgvecto.rs](https://github.com/tensorchord/pgvecto.rs) vector extension.
+
+1. Install the vector extension:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vectors;
+```
+
+2. Create the tables using the provided SQL files:
+
+```bash
+psql -h your-host -U your-user -d your-db -f sql/chat_messages.sql
+psql -h your-host -U your-user -d your-db -f sql/vault_notes.sql
+```
+
+- **`chat_messages`** — Stores conversation history. The plugin writes here automatically on every agent run. See [`sql/chat_messages.sql`](sql/chat_messages.sql) for the full schema.
+- **`vault_notes`** — Stores your knowledge base (e.g. Obsidian vault notes). You populate this yourself (via a sync script or similar). See [`sql/vault_notes.sql`](sql/vault_notes.sql) for the full schema.
+
+Both tables use `vector(1536)` columns for embeddings (matching `text-embedding-3-small` output dimension) and include pgvector cosine similarity indexes for fast search.
+
 ## Requirements
 
-- PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) extension
+- PostgreSQL with [pgvecto.rs](https://github.com/tensorchord/pgvecto.rs) extension (for vector similarity search)
 - OpenRouter API key (for embeddings)
 - OpenClaw
 
