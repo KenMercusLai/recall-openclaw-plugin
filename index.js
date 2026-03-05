@@ -126,12 +126,14 @@ export default {
 
         if (!messages.length) return;
 
-        const sessionKey = ctx?.sessionKey || ctx?.sessionId || `openclaw-${Date.now()}`;
+        const sessionId = ctx?.sessionId || `openclaw-${Date.now()}`;
+        const sessionLabel = ctx?.sessionKey || null;
 
         // Save each message
         for (const msg of messages) {
           await addMessage(cfg, {
-            sessionKey,
+            sessionId,
+            sessionLabel,
             role: msg.role,
             content: msg.content,
             metadata: msg.metadata || {},
