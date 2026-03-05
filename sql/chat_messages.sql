@@ -9,8 +9,9 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     session_id    TEXT NOT NULL,
     session_label TEXT,
     "timestamp"   TIMESTAMPTZ NOT NULL,
-    role          TEXT NOT NULL,            -- 'user' | 'assistant' | 'system'
-    content       TEXT NOT NULL,
+    role          TEXT NOT NULL,            -- 'user' | 'assistant' | 'toolResult'
+    content       TEXT NOT NULL,            -- cleaned text (envelope metadata stripped)
+    raw_content   TEXT,                     -- original unmodified text
     metadata      JSONB DEFAULT '{}'::jsonb,
     created_at    TIMESTAMPTZ DEFAULT now(),
     content_tsv   TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,

@@ -19,29 +19,47 @@
        │
        ▼
 ┌─ agent_end ──────────────────────────────┐
-│  对话内容 → embedding → INSERT            │
-│  PostgreSQL (chat_messages)               │
+│  对话 → 清洗 + embedding → INSERT         │
+│  content（清洗后）+ raw_content（原始）    │
 │  → 存储供未来召回                          │
 └───────────────────────────────────────────┘
 ```
 
-**召回（Recall）**：每次 agent 运行前，通过 pgvector 余弦相似度搜索数据库中的相关对话和笔记，注入到 prompt 上下文。
+## 功能特性
 
-**存储（Store）**：每次 agent 运行后，将对话内容生成 embedding 并存入数据库。
+- **语义搜索** — 使用 pgvector 余弦相似度查找相关的历史对话和笔记，而非简单关键词匹配
+- **内容清洗** — 自动剥离 OpenClaw 注入的信封元数据（对话信息、发送者信息、媒体附件、回复标签、recall 注入内容），确保搜索基于实际消息内容
+- **双重存储** — `content` 存清洗后的文本（用于搜索），`raw_content` 保留原始内容（供参考）
+- **心跳过滤** — 在召回和存储两端都跳过心跳消息，避免噪音
+- **toolResult 排除** — 后端工具执行结果会存储但不参与召回搜索
+- **相似度阈值** — 可配置最低余弦相似度（默认 `0.5`），过滤低相关度结果
+- **精确时间戳** — 使用消息元数据中的原始时间戳，而非插入时间
+- **去重** — 基于 `(session_id, md5(content), date_trunc('second', timestamp))` 唯一索引防止重复
+- **会话追踪** — 同时记录 `session_id`（UUID）和 `session_label`（可读标识如 `agent:main:telegram:direct:12345`）
+- **丰富元数据** — 以 JSONB 格式存储模型、用量、提供商、工具信息等消息元数据
 
 ## 安装
 
 ```bash
+# 从 npm（发布后）
 openclaw plugins install recall-openclaw-plugin@latest
+
+# 从本地路径
+# 在 OpenClaw 配置中设置插件加载路径：
+# "load": { "recall-openclaw-plugin": "/path/to/recall-openclaw-plugin" }
 ```
 
 ### 配置
 
-在 OpenClaw 配置文件中：
+在 OpenClaw 配置文件（`~/.openclaw/openclaw.json`）中：
 
 ```json
 {
   "plugins": {
+    "allow": ["recall-openclaw-plugin"],
+    "load": {
+      "recall-openclaw-plugin": "/path/to/recall-openclaw-plugin"
+    },
     "entries": {
       "recall-openclaw-plugin": { "enabled": true }
     }
@@ -49,17 +67,9 @@ openclaw plugins install recall-openclaw-plugin@latest
 }
 ```
 
-## 环境变量
+## 插件配置
 
-- `PGHOST` — PostgreSQL 主机（默认 `server`）
-- `PGPORT` — PostgreSQL 端口（默认 `5432`）
-- `PGUSER` — PostgreSQL 用户（默认 `chloe`）
-- `PGPASSWORD` — PostgreSQL 密码
-- `PGDATABASE` — PostgreSQL 数据库（默认 `chloe`）
-- `OPENROUTER_API_KEY` — 必需，用于生成 embedding
-- `EMBEDDING_MODEL` — Embedding 模型（默认 `openai/text-embedding-3-small`）
-
-### 插件配置
+在 `plugins.entries.recall-openclaw-plugin.config` 中：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -73,9 +83,41 @@ openclaw plugins install recall-openclaw-plugin@latest
 | `recallEnabled` | boolean | `true` | 启用记忆召回 |
 | `addEnabled` | boolean | `true` | 启用对话存储 |
 | `captureStrategy` | string | `last_turn` | `last_turn` 或 `full_session` |
-| `searchLimit` | integer | `10` | 每次搜索最大结果数 |
+| `searchLimit` | integer | `10` | 每次搜索最大结果数（在对话和笔记之间分配） |
+| `minSimilarity` | number | `0.5` | 最低余弦相似度阈值（0–1），低于此值的结果被丢弃 |
 | `timeoutMs` | integer | `5000` | 数据库连接超时 |
 | `throttleMs` | integer | `0` | 存储最小间隔 |
+
+## 详细流程
+
+### 召回（before_agent_start）
+1. 取用户 prompt 生成 embedding（通过 OpenRouter）
+2. 搜索 `chat_messages`（排除 `toolResult`）和 `vault_notes`，使用 pgvector 余弦相似度
+3. 过滤低于 `minSimilarity` 阈值的结果
+4. 格式化 top 结果，通过 `prependContext` 注入 agent 上下文
+5. 心跳消息直接跳过
+
+### 存储（agent_end）
+1. agent 运行成功后，提取对话中的消息
+2. **清洗每条消息** — 剥离信封元数据、媒体附件块、回复标签、recall 注入块
+3. 同时存储 `content`（清洗后，用于 embedding）和 `raw_content`（原始，供参考）
+4. 使用消息元数据中的原始时间戳（无可用时间戳则用 `NOW()`）
+5. 从清洗后的内容异步生成 embedding
+6. 心跳消息直接跳过
+
+### 内容清洗（stripEnvelope）
+
+以下模式在存储和生成 embedding 前自动移除：
+
+- `## Relevant memories from past conversations and notes:` 块（recall 自身注入）
+- `Conversation info (untrusted metadata):` JSON 块
+- `Sender (untrusted metadata):` JSON 块
+- `[media attached: ...]` 块
+- `To send an image back...` 指示行
+- `[image data removed - already processed by model]` 标记
+- `Replied message (untrusted, for context):` JSON 块
+- `[[reply_to_current]]` 和 `[[reply_to:<id>]]` 标签
+- 多余的连续空行（压缩为一行）
 
 ## 数据库配置
 
@@ -94,14 +136,31 @@ psql -h your-host -U your-user -d your-db -f sql/chat_messages.sql
 psql -h your-host -U your-user -d your-db -f sql/vault_notes.sql
 ```
 
-- **`chat_messages`** — 存储对话历史。插件每次 agent 运行后自动写入。完整定义见 [`sql/chat_messages.sql`](sql/chat_messages.sql)。
-- **`vault_notes`** — 存储知识库（如 Obsidian vault 笔记）。需要你自己同步数据（通过脚本等）。完整定义见 [`sql/vault_notes.sql`](sql/vault_notes.sql)。
+### chat_messages
 
-两张表都使用 `vector(1536)` 列存储 embedding（匹配 `text-embedding-3-small` 输出维度），并建有 pgvector 余弦相似度索引。
+存储对话历史。插件每次 agent 运行后自动写入。
+
+主要字段：
+- `content` — 清洗后的消息文本（信封元数据已剥离）
+- `raw_content` — 原始未修改的消息文本
+- `role` — `user`、`assistant` 或 `toolResult`
+- `embedding` — `vector(1536)` 用于余弦相似度搜索
+- `session_id` — 匹配 OpenClaw 会话的 UUID
+- `session_label` — 可读会话标识（如 `agent:main:telegram:direct:12345`）
+- `timestamp` — 消息原始时间戳
+- `metadata` — JSONB，包含模型、用量、提供商、工具信息等
+
+完整定义见 [`sql/chat_messages.sql`](sql/chat_messages.sql)。
+
+### vault_notes
+
+存储知识库（如 Obsidian vault 笔记）。需要你自己通过同步脚本等方式填充数据。
+
+完整定义见 [`sql/vault_notes.sql`](sql/vault_notes.sql)。
 
 ## 依赖
 
-- PostgreSQL + [pgvecto.rs](https://github.com/tensorchord/pgvecto.rs) 扩展（向量相似度搜索）
+- PostgreSQL + [pgvecto.rs](https://github.com/tensorchord/pgvecto.rs) 扩展
 - OpenRouter API Key（用于 embedding）
 - OpenClaw
 
