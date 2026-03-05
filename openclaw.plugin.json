@@ -65,6 +65,11 @@
         "description": "Max results per search (split between conversations and notes)",
         "default": 10
       },
+      "minSimilarity": {
+        "type": "number",
+        "description": "Minimum cosine similarity threshold (0-1). Results below this are discarded.",
+        "default": 0.6
+      },
       "timeoutMs": {
         "type": "integer",
         "default": 5000
