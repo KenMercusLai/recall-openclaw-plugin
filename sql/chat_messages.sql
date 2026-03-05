@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     id            BIGSERIAL PRIMARY KEY,
     session_id    TEXT NOT NULL,
     session_label TEXT,
-    message_id    TEXT,
     "timestamp"   TIMESTAMPTZ NOT NULL,
     role          TEXT NOT NULL,            -- 'user' | 'assistant' | 'system'
     content       TEXT NOT NULL,
@@ -21,10 +20,6 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 -- Deduplication: prevent identical messages in same session within the same second
 CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_dedup
     ON chat_messages (session_id, md5(content), date_trunc('second', "timestamp" AT TIME ZONE 'UTC'));
-
--- Unique message_id (if provided by the agent framework)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_message_id
-    ON chat_messages (message_id);
 
 -- Vector similarity search (cosine distance)
 CREATE INDEX IF NOT EXISTS idx_chat_messages_embedding

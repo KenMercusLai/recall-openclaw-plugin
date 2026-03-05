@@ -44,10 +44,10 @@ function pickLastTurnMessages(messages, cfg) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
+      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
     } else if (msg.role === "assistant" && cfg.includeAssistant) {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
+      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
     }
   }
 
@@ -60,10 +60,10 @@ function pickFullSessionMessages(messages, cfg) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
+      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
     } else if (msg.role === "assistant" && cfg.includeAssistant) {
       const content = extractText(msg.content);
-      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg), messageId: msg.id || null });
+      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars), metadata: extractMetadata(msg) });
     }
   }
   return results;
@@ -135,7 +135,6 @@ export default {
             role: msg.role,
             content: msg.content,
             metadata: msg.metadata || {},
-            messageId: msg.messageId || null,
           });
         }
       } catch (err) {
