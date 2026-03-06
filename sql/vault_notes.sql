@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS vault_notes (
     content_tsv      TSVECTOR GENERATED ALWAYS AS (
         to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(content, ''))
     ) STORED,
-    embedding        vector(1536)                -- text-embedding-3-small output dimension
+    embedding        vector(1536),               -- text-embedding-3-small output dimension
+    weight           FLOAT DEFAULT 1.0           -- recall weight: 1.0=normal, 2.0=pinned/important, 0=suppressed
 );
 
 -- Vector similarity search (cosine distance)
