@@ -33,6 +33,8 @@ User sends message
 - **Heartbeat Filtering** — Skips heartbeat poll messages in both recall and store to avoid noise
 - **toolResult Exclusion** — Backend tool execution outputs are stored but excluded from recall search
 - **Similarity Threshold** — Configurable minimum cosine similarity (default `0.5`) filters out low-relevance results
+- **Time Decay** — Logarithmic memory decay makes older memories harder to recall unless highly relevant. Formula: `final_score = similarity × 1/(1 + α × ln(1 + days)) × weight`. Configurable via `timeDecayAlpha` (default `0.09`, set `0` to disable). vault_notes are exempt from time decay.
+- **Memory Pinning** — Mark important memories with `weight > 1.0` to boost their recall score, or suppress noisy ones with `weight = 0`. Applied to both `chat_messages` and `vault_notes`.
 - **Accurate Timestamps** — Uses the message's original timestamp from metadata, not insertion time
 - **Deduplication** — Unique index on `(session_id, md5(content), date_trunc('second', timestamp))` prevents duplicate entries
 - **Session Tracking** — Records both `session_id` (UUID) and `session_label` (human-readable key like `agent:main:telegram:direct:12345`)
@@ -85,6 +87,7 @@ In `plugins.entries.recall-openclaw-plugin.config`:
 | `captureStrategy` | string | `last_turn` | `last_turn` or `full_session` |
 | `searchLimit` | integer | `10` | Max results per search (split between conversations and notes) |
 | `minSimilarity` | number | `0.5` | Minimum cosine similarity threshold (0–1). Results below this are discarded |
+| `timeDecayAlpha` | number | `0.09` | Time decay factor (α). Higher = faster decay. `0` = disabled |
 | `timeoutMs` | integer | `5000` | DB connection timeout |
 | `throttleMs` | integer | `0` | Min interval between saves |
 
@@ -93,9 +96,12 @@ In `plugins.entries.recall-openclaw-plugin.config`:
 ### Recall (before_agent_start)
 1. Takes the user's prompt and generates an embedding via OpenRouter
 2. Searches `chat_messages` (excluding `toolResult` role) and `vault_notes` using pgvector cosine similarity
-3. Filters results below `minSimilarity` threshold
-4. Formats the top results and injects them into the agent context via `prependContext`
-5. Skips heartbeat messages entirely
+3. Over-fetches 3x candidates when time decay is enabled (since decay may filter some out)
+4. Applies time decay and weight to compute `final_score` for each result
+5. Filters results where `final_score < minSimilarity`
+6. Sorts by `final_score` descending, takes top N
+7. Formats and injects into agent context via `prependContext`
+8. Skips heartbeat messages entirely
 
 ### Store (agent_end)
 1. After a successful agent run, extracts messages from the conversation
@@ -118,6 +124,57 @@ The following patterns are automatically removed from `content` before storage a
 - `Replied message (untrusted, for context):` JSON blocks
 - `[[reply_to_current]]` and `[[reply_to:<id>]]` tags
 - Multiple consecutive blank lines (collapsed to one)
+
+## Time Decay
+
+Older memories gradually become harder to recall unless they are highly semantically relevant. This prevents irrelevant old conversations from cluttering your context.
+
+**Formula:** `final_score = cosine_similarity × 1/(1 + α × ln(1 + days_old)) × weight`
+
+With the default `α = 0.09` and `minSimilarity = 0.5`:
+
+| Cosine Similarity | Survives ~1 week? | Survives ~1 month? | Survives ~3 months? |
+|---|---|---|---|
+| 0.90 (near-identical) | ✅ 0.745 | ✅ 0.671 | ✅ 0.620 |
+| 0.70 (same topic) | ✅ 0.590 | ✅ 0.536 | ❌ 0.497 |
+| 0.60 (related) | ✅ 0.506 | ❌ 0.460 | ❌ 0.413 |
+| 0.55 (loosely related) | ❌ 0.463 | ❌ 0.422 | ❌ 0.379 |
+
+- **vault_notes are exempt** from time decay (notes are timeless reference material)
+- Set `timeDecayAlpha: 0` to disable decay entirely
+
+## Memory Pinning
+
+You can boost or suppress individual memories by setting the `weight` column:
+
+| Weight | Effect |
+|--------|--------|
+| `1.0` | Normal (default) |
+| `2.0` | Pinned — score effectively doubled, resists time decay much longer |
+| `0` | Suppressed — will never be recalled |
+
+**Examples:**
+
+```sql
+-- Pin an important memory
+UPDATE chat_messages SET weight = 2.0 WHERE id = 12345;
+
+-- Suppress a noisy/irrelevant memory
+UPDATE chat_messages SET weight = 0 WHERE id = 67890;
+
+-- Reset to normal
+UPDATE chat_messages SET weight = 1.0 WHERE id = 12345;
+
+-- List all pinned memories
+SELECT id, LEFT(content, 100), weight FROM chat_messages WHERE weight != 1.0;
+
+-- Pin a vault note
+UPDATE vault_notes SET weight = 2.0 WHERE path = 'important-note.md';
+```
+
+A pinned memory (weight=2.0) with cosine 0.60 at 90 days old:
+- Normal: `0.60 × 0.689 = 0.413` ❌ below threshold
+- Pinned: `0.60 × 0.689 × 2.0 = 0.827` ✅ easily recalled
 
 ## Database Setup
 
@@ -149,6 +206,7 @@ Key columns:
 - `session_label` — Human-readable session key (e.g. `agent:main:telegram:direct:12345`)
 - `timestamp` — Original message timestamp
 - `metadata` — JSONB with model, usage, provider, tool info, etc.
+- `weight` — Recall weight (default `1.0`). Set `2.0` to pin, `0` to suppress.
 
 See [`sql/chat_messages.sql`](sql/chat_messages.sql) for the full schema.
 

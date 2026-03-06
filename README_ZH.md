@@ -33,6 +33,8 @@
 - **心跳过滤** — 在召回和存储两端都跳过心跳消息，避免噪音
 - **toolResult 排除** — 后端工具执行结果会存储但不参与召回搜索
 - **相似度阈值** — 可配置最低余弦相似度（默认 `0.5`），过滤低相关度结果
+- **时间衰减** — 对数记忆衰减，老记忆需要更高语义相关度才能被召回。公式：`final_score = similarity × 1/(1 + α × ln(1 + days)) × weight`。可配置 `timeDecayAlpha`（默认 `0.09`，设 `0` 关闭）。vault_notes 不受衰减影响。
+- **重要记忆置顶** — 通过 `weight` 列标记重要记忆（`2.0`=置顶，`0`=屏蔽）。置顶记忆能抵抗时间衰减，长期保持可召回。
 - **精确时间戳** — 使用消息元数据中的原始时间戳，而非插入时间
 - **去重** — 基于 `(session_id, md5(content), date_trunc('second', timestamp))` 唯一索引防止重复
 - **会话追踪** — 同时记录 `session_id`（UUID）和 `session_label`（可读标识如 `agent:main:telegram:direct:12345`）
@@ -85,6 +87,7 @@ openclaw plugins install recall-openclaw-plugin@latest
 | `captureStrategy` | string | `last_turn` | `last_turn` 或 `full_session` |
 | `searchLimit` | integer | `10` | 每次搜索最大结果数（在对话和笔记之间分配） |
 | `minSimilarity` | number | `0.5` | 最低余弦相似度阈值（0–1），低于此值的结果被丢弃 |
+| `timeDecayAlpha` | number | `0.09` | 时间衰减因子（α），越大衰减越快，`0` 关闭衰减 |
 | `timeoutMs` | integer | `5000` | 数据库连接超时 |
 | `throttleMs` | integer | `0` | 存储最小间隔 |
 
@@ -93,9 +96,12 @@ openclaw plugins install recall-openclaw-plugin@latest
 ### 召回（before_agent_start）
 1. 取用户 prompt 生成 embedding（通过 OpenRouter）
 2. 搜索 `chat_messages`（排除 `toolResult`）和 `vault_notes`，使用 pgvector 余弦相似度
-3. 过滤低于 `minSimilarity` 阈值的结果
-4. 格式化 top 结果，通过 `prependContext` 注入 agent 上下文
-5. 心跳消息直接跳过
+3. 启用衰减时过采样 3 倍候选（衰减可能淘汰部分结果）
+4. 计算 `final_score = similarity × time_decay × weight`
+5. 过滤 `final_score < minSimilarity` 的结果
+6. 按 `final_score` 排序，取 top N
+7. 格式化结果，通过 `prependContext` 注入 agent 上下文
+8. 心跳消息直接跳过
 
 ### 存储（agent_end）
 1. agent 运行成功后，提取对话中的消息
@@ -118,6 +124,57 @@ openclaw plugins install recall-openclaw-plugin@latest
 - `Replied message (untrusted, for context):` JSON 块
 - `[[reply_to_current]]` 和 `[[reply_to:<id>]]` 标签
 - 多余的连续空行（压缩为一行）
+
+## 时间衰减
+
+老记忆会逐渐变得更难被召回，除非它们在语义上高度相关。这能防止无关的旧对话污染上下文。
+
+**公式：** `final_score = cosine_similarity × 1/(1 + α × ln(1 + days_old)) × weight`
+
+默认 `α = 0.09`，`minSimilarity = 0.5` 时的效果：
+
+| 余弦相似度 | 1 周后能召回？ | 1 个月后？ | 3 个月后？ |
+|---|---|---|---|
+| 0.90（几乎同义） | ✅ 0.745 | ✅ 0.671 | ✅ 0.620 |
+| 0.70（同一话题） | ✅ 0.590 | ✅ 0.536 | ❌ 0.497 |
+| 0.60（有关联） | ✅ 0.506 | ❌ 0.460 | ❌ 0.413 |
+| 0.55（弱关联） | ❌ 0.463 | ❌ 0.422 | ❌ 0.379 |
+
+- **vault_notes 不受衰减影响**（笔记是永久参考资料）
+- 设 `timeDecayAlpha: 0` 可完全关闭衰减
+
+## 重要记忆置顶
+
+通过 `weight` 列控制单条记忆的召回优先级：
+
+| Weight | 效果 |
+|--------|------|
+| `1.0` | 普通（默认） |
+| `2.0` | 置顶 — 分数翻倍，能长期抵抗时间衰减 |
+| `0` | 屏蔽 — 永远不会被召回 |
+
+**操作示例：**
+
+```sql
+-- 置顶一条重要记忆
+UPDATE chat_messages SET weight = 2.0 WHERE id = 12345;
+
+-- 屏蔽一条噪音记忆
+UPDATE chat_messages SET weight = 0 WHERE id = 67890;
+
+-- 恢复为普通
+UPDATE chat_messages SET weight = 1.0 WHERE id = 12345;
+
+-- 查看所有非默认权重的记忆
+SELECT id, LEFT(content, 100), weight FROM chat_messages WHERE weight != 1.0;
+
+-- 置顶一条笔记
+UPDATE vault_notes SET weight = 2.0 WHERE path = 'important-note.md';
+```
+
+置顶记忆（weight=2.0）在 90 天后、cosine=0.60 的效果：
+- 普通：`0.60 × 0.689 = 0.413` ❌ 低于阈值
+- 置顶：`0.60 × 0.689 × 2.0 = 0.827` ✅ 轻松召回
 
 ## 数据库配置
 
@@ -149,6 +206,7 @@ psql -h your-host -U your-user -d your-db -f sql/vault_notes.sql
 - `session_label` — 可读会话标识（如 `agent:main:telegram:direct:12345`）
 - `timestamp` — 消息原始时间戳
 - `metadata` — JSONB，包含模型、用量、提供商、工具信息等
+- `weight` — 召回权重（默认 `1.0`），`2.0` 置顶，`0` 屏蔽
 
 完整定义见 [`sql/chat_messages.sql`](sql/chat_messages.sql)。
 
