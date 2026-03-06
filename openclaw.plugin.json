@@ -70,6 +70,11 @@
         "description": "Minimum cosine similarity threshold (0-1). Results below this are discarded.",
         "default": 0.5
       },
+      "timeDecayAlpha": {
+        "type": "number",
+        "description": "Time decay factor (α) for logarithmic memory decay. Higher = faster decay. 0 = disabled. Formula: final_score = similarity × 1/(1 + α × ln(1 + days))",
+        "default": 0.09
+      },
       "timeoutMs": {
         "type": "integer",
         "default": 5000
